@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Majority Element II — Boyer-Moore Voting Algorithm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue:#2563EB;
+    --amber:#F59E0B;
+    --green:#10B981;
+    --red:#EF4444;
+    --ink:#0F172A;
+    --gray:#94A3B8;
+    --card-bg:#FFFFFF;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    width:100%; height:100%;
+    background:#EEF0F3;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Inter', sans-serif;
+    overflow:hidden;
+  }
+  .card{
+    position:relative;
+    width:405px; height:720px;
+    background:var(--card-bg);
+    overflow:hidden;
+    box-shadow:0 30px 80px rgba(15,23,42,0.18);
+  }
+  .phase{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .45s ease;
+  }
+  .phase.show{ opacity:1; pointer-events:auto; }
+
+  .fadeline{
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity .45s ease, transform .45s ease;
+  }
+  .fadeline.in{ opacity:1; transform:translateY(0); }
+
+  /* ---------- nums label / bracket array text ---------- */
+  .nums-label{
+    font-family:'JetBrains Mono', monospace;
+    font-weight:700;
+    font-size:18px;
+    color:var(--ink);
+    margin-bottom:22px;
+  }
+  .nums-label .key{ color:var(--gray); }
+
+  /* ---------- array row of boxes ---------- */
+  .array-row{ display:flex; gap:7px; }
+  .arr-item{ display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .arr-box{
+    width:38px; height:38px;
+    border-radius:9px;
+    border:2px solid #E2E8F0;
+    background:#F8FAFC;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'JetBrains Mono', monospace;
+    font-weight:700;
+    font-size:17px;
+    color:var(--ink);
+    transition:border-color .3s ease, background .3s ease, transform .3s ease, color .3s ease;
+  }
+  .arr-item.active .arr-box{
+    border-color:var(--amber);
+    background:#FFF8EC;
+    transform:scale(1.14);
+  }
+  .arr-item.done .arr-box{
+    border-color:#E2E8F0;
+    color:#CBD5E1;
+    background:#FAFBFC;
+  }
+  .arr-caret{
+    font-size:12px;
+    color:var(--amber);
+    opacity:0;
+    transition:opacity .25s ease;
+    line-height:1;
+  }
+  .arr-item.active .arr-caret{ opacity:1; }
+
+  /* ---------- step caption ---------- */
+  .step-caption{
+    min-height:22px;
+    font-size:14.5px;
+    font-weight:600;
+    color:var(--gray);
+    text-align:center;
+    padding:0 30px;
+    opacity:0;
+    transform:translateY(6px);
+    transition:opacity .3s ease, transform .3s ease;
+  }
+  .step-caption.in{ opacity:1; transform:translateY(0); }
+
+  /* ---------- state panel ---------- */
+  .state-panel{ display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .state-row{
+    display:flex; align-items:baseline; gap:8px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:15.5px;
+    font-weight:700;
+  }
+  .state-row .lbl{ color:var(--gray); font-weight:600; }
+  .state-row .cand{ color:var(--blue); min-width:14px; display:inline-block; text-align:center; }
+  .state-row .cnt{ color:var(--amber); min-width:14px; display:inline-block; text-align:center; }
+  .flash{ animation:flashPop .5s ease; }
+  @keyframes flashPop{
+    0%{ transform:scale(1); }
+    40%{ transform:scale(1.45); }
+    100%{ transform:scale(1); }
+  }
+
+  /* ---------- cancellation overlay (within traversal phase) ---------- */
+  .cancel-overlay{
+    position:absolute; inset:0;
+    background:var(--card-bg);
+    z-index:5;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .4s ease;
+  }
+  .cancel-overlay.show{ opacity:1; pointer-events:auto; }
+  .cancel-chips{
+    display:flex; gap:16px;
+    margin-bottom:30px;
+    transition:opacity .45s ease, transform .45s ease;
+  }
+  .cancel-chips.hidden{ opacity:0; transform:scale(0.85); }
+  .chip{
+    position:relative;
+    width:48px; height:48px;
+    border-radius:11px;
+    border:2.5px solid var(--blue);
+    background:#F5F8FF;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'JetBrains Mono', monospace;
+    font-weight:800;
+    font-size:20px;
+    color:var(--blue);
+  }
+  .x-mark{
+    position:absolute; top:-11px; right:-11px;
+    width:26px; height:26px;
+    border-radius:50%;
+    background:var(--red);
+    color:#fff;
+    font-size:13px; font-weight:800;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transform:scale(0);
+    transition:opacity .3s ease, transform .3s cubic-bezier(.4,1.6,.5,1);
+  }
+  .x-mark.show{ opacity:1; transform:scale(1); }
+  .cancel-text{
+    position:absolute;
+    font-weight:800;
+    font-size:18px;
+    color:var(--red);
+    text-align:center;
+    padding:0 36px;
+    opacity:0;
+    transform:translateY(8px);
+    transition:opacity .45s ease, transform .45s ease;
+  }
+  .cancel-text.show{ opacity:1; transform:translateY(0); }
+
+  /* ---------- phaseComplete (scene 9) ---------- */
+  .final-cands{
+    display:flex; flex-direction:column; gap:8px; align-items:center;
+    font-family:'JetBrains Mono', monospace;
+    font-size:18px; font-weight:700;
+    color:var(--ink);
+    margin-bottom:24px;
+  }
+  .final-cands .cand{ color:var(--blue); }
+  .potential-text{
+    font-size:21px; font-weight:800; color:var(--green);
+    margin-bottom:10px;
+  }
+  .notfinal-text{
+    font-size:14.5px; font-weight:700; color:var(--gray);
+    letter-spacing:0.3px;
+  }
+
+  /* ---------- verification sub-blocks ---------- */
+  .vsub{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    opacity:0;
+    transition:opacity .45s ease;
+    pointer-events:none;
+  }
+  .vsub.show{ opacity:1; pointer-events:auto; }
+  .vheader{
+    font-size:17px; font-weight:800; color:var(--ink);
+    margin-bottom:22px;
+  }
+  .vline{
+    font-family:'JetBrains Mono', monospace;
+    font-size:19px; font-weight:700; color:var(--ink);
+    margin:5px 0;
+  }
+  .vline .amber{ color:var(--amber); }
+  .compare-line{
+    font-family:'JetBrains Mono', monospace;
+    font-size:21px; font-weight:800; color:var(--green);
+    margin:6px 0;
+    opacity:0; transform:translateY(8px);
+    transition:opacity .4s ease, transform .4s ease;
+  }
+  .compare-line.in{ opacity:1; transform:translateY(0); }
+  .answer-text{
+    font-family:'JetBrains Mono', monospace;
+    font-size:30px; font-weight:800; color:var(--green);
+  }
+
+  /* ---------- edge case phase ---------- */
+  .esub{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    opacity:0;
+    transition:opacity .45s ease;
+    pointer-events:none;
+  }
+  .esub.show{ opacity:1; pointer-events:auto; }
+  .edge-header{
+    font-size:19px; font-weight:800; color:var(--ink);
+    text-align:center;
+  }
+  .case-array{
+    font-family:'JetBrains Mono', monospace;
+    font-size:21px; font-weight:700; color:var(--ink);
+    margin-bottom:26px;
+  }
+  .chain-line{
+    font-size:16px; font-weight:700; color:var(--ink);
+    text-align:center;
+    opacity:0; transform:translateY(8px);
+    transition:opacity .4s ease, transform .4s ease;
+    margin:3px 0;
+  }
+  .chain-line.in{ opacity:1; transform:translateY(0); }
+  .chain-arrow{
+    font-size:15px; color:var(--gray);
+    opacity:0; transform:translateY(8px);
+    transition:opacity .4s ease, transform .4s ease;
+    margin:1px 0;
+  }
+  .chain-arrow.in{ opacity:1; transform:translateY(0); }
+  .chain-line.fail{ color:var(--red); }
+  .chain-line.result{
+    font-family:'JetBrains Mono', monospace;
+    font-size:20px; color:var(--green);
+  }
+
+  /* ---------- final summary chain ---------- */
+  #phaseFinal .final-chain{
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .fc-line{
+    font-size:16.5px; font-weight:700; color:var(--ink);
+    text-align:center;
+    padding:0 26px;
+    opacity:0; transform:translateY(6px);
+    transition:opacity .4s ease, transform .4s ease;
+    margin:2px 0;
+  }
+  .fc-line.in{ opacity:1; transform:translateY(0); }
+  .fc-arrow{
+    font-size:13px; color:var(--gray);
+    opacity:0; transform:translateY(6px);
+    transition:opacity .4s ease, transform .4s ease;
+    margin:1px 0;
+  }
+  .fc-arrow.in{ opacity:1; transform:translateY(0); }
+  .fc-final{
+    font-size:19px; font-weight:800; color:var(--green);
+    margin-top:4px;
+  }
+
+  /* ---------- replay ---------- */
+  #replay{
+    position:absolute;
+    bottom:22px; right:22px;
+    width:44px; height:44px;
+    border-radius:50%;
+    background:var(--ink);
+    color:#fff;
+    border:none;
+    font-size:20px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    opacity:0;
+    transform:scale(0.7);
+    transition:opacity .4s ease, transform .4s ease;
+    z-index:50;
+  }
+  #replay.show{ opacity:1; transform:scale(1); pointer-events:auto; }
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+
+  <!-- PHASE: INTRO (Scene 1) -->
+  <div class="phase" id="phaseIntro">
+    <div class="nums-label fadeline" id="introNumsLabel"><span class="key">nums =</span> [1, 2, 3, 1, 2, 1, 2]</div>
+    <div class="array-row fadeline" id="introArrayRow">
+      <div class="arr-item"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">3</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+    </div>
+    <div class="state-panel fadeline" id="introStatePanel" style="margin-top:26px;">
+      <div class="state-row"><span class="lbl">candidate1 =</span><span class="cand">?</span><span class="lbl">&nbsp;&nbsp;count1 =</span><span class="cnt">0</span></div>
+      <div class="state-row"><span class="lbl">candidate2 =</span><span class="cand">?</span><span class="lbl">&nbsp;&nbsp;count2 =</span><span class="cnt">0</span></div>
+    </div>
+    <div class="step-caption fadeline" id="introCaption" style="margin-top:30px; color:var(--ink); font-size:16px;">Let's see what actually happens...</div>
+  </div>
+
+  <!-- PHASE: TRAVERSAL (Scenes 2-8) -->
+  <div class="phase" id="phaseTraversal">
+    <div class="array-row" id="travArrayRow" style="margin-bottom:34px;">
+      <div class="arr-item" id="t0"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t1"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t2"><div class="arr-box">3</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t3"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t4"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t5"><div class="arr-box">1</div><div class="arr-caret">▲</div></div>
+      <div class="arr-item" id="t6"><div class="arr-box">2</div><div class="arr-caret">▲</div></div>
+    </div>
+    <div class="step-caption" id="stepCaption"></div>
+    <div class="state-panel" id="travStatePanel" style="margin-top:26px;">
+      <div class="state-row"><span class="lbl">candidate1 =</span><span class="cand" id="c1val">?</span><span class="lbl">&nbsp;&nbsp;count1 =</span><span class="cnt" id="cnt1val">0</span></div>
+      <div class="state-row"><span class="lbl">candidate2 =</span><span class="cand" id="c2val">?</span><span class="lbl">&nbsp;&nbsp;count2 =</span><span class="cnt" id="cnt2val">0</span></div>
+    </div>
+
+    <div class="cancel-overlay" id="cancelOverlay">
+      <div class="cancel-chips" id="cancelChips">
+        <div class="chip" id="chipA">1<div class="x-mark" id="xA">✕</div></div>
+        <div class="chip" id="chipB">2<div class="x-mark" id="xB">✕</div></div>
+        <div class="chip" id="chipC">3<div class="x-mark" id="xC">✕</div></div>
+      </div>
+      <div class="cancel-text" id="cancelText">Removed 3 Different Elements</div>
+    </div>
+  </div>
+
+  <!-- PHASE: TRAVERSAL COMPLETE (Scene 9) -->
+  <div class="phase" id="phaseComplete">
+    <div class="final-cands fadeline" id="fcCands">
+      <div>candidate1 = <span class="cand">1</span></div>
+      <div>candidate2 = <span class="cand">2</span></div>
+    </div>
+    <div class="potential-text fadeline" id="fcPotential">Potential Winners ✅</div>
+    <div class="notfinal-text fadeline" id="fcNotFinal">NOT FINAL ANSWER YET</div>
+  </div>
+
+  <!-- PHASE: VERIFICATION (Scenes 10-12) -->
+  <div class="phase" id="phaseVerification">
+    <div class="vsub" id="vSubA">
+      <div class="vheader fadeline" id="vAHeader">Second Pass Verification</div>
+      <div class="vline fadeline" id="vALine1">Count(1) = <span class="amber">3</span></div>
+      <div class="vline fadeline" id="vALine2">Count(2) = <span class="amber">3</span></div>
+    </div>
+    <div class="vsub" id="vSubB">
+      <div class="vline fadeline" id="vBn">n = 7</div>
+      <div class="vline fadeline" id="vBn3" style="margin-bottom:18px;">n / 3 = 2</div>
+      <div class="compare-line" id="vBcmp1">3 &gt; 2 ✅</div>
+      <div class="compare-line" id="vBcmp2">3 &gt; 2 ✅</div>
+    </div>
+    <div class="vsub" id="vSubC">
+      <div class="answer-text fadeline" id="vCAnswer">Answer = [1, 2]</div>
+    </div>
+  </div>
+
+  <!-- PHASE: EDGE CASES (Scenes 13-15) -->
+  <div class="phase" id="phaseEdgeCases">
+    <div class="esub" id="eHeader">
+      <div class="edge-header fadeline" id="eHeaderText">Quick Interview Edge Cases</div>
+    </div>
+    <div class="esub" id="eCase1">
+      <div class="case-array fadeline" id="e1Array">[1, 2, 3, 4, 5]</div>
+      <div class="chain-line" id="e1L1">Candidates Found</div>
+      <div class="chain-arrow" id="e1A1">↓</div>
+      <div class="chain-line fail" id="e1L2">Verification Failed ❌</div>
+      <div class="chain-arrow" id="e1A2">↓</div>
+      <div class="chain-line result" id="e1L3">[ ]</div>
+    </div>
+    <div class="esub" id="eCase2">
+      <div class="case-array fadeline" id="e2Array">[1, 1, 1, 2, 3]</div>
+      <div class="chain-line" id="e2L1">Only One Winner</div>
+      <div class="chain-arrow" id="e2A1">↓</div>
+      <div class="chain-line result" id="e2L2">[1]</div>
+    </div>
+    <div class="esub" id="eCase3">
+      <div class="case-array fadeline" id="e3Array">[1, 1, 1, 2, 2, 2, 3]</div>
+      <div class="chain-line" id="e3L1">Two Winners</div>
+      <div class="chain-arrow" id="e3A1">↓</div>
+      <div class="chain-line result" id="e3L2">[1, 2]</div>
+    </div>
+  </div>
+
+  <!-- PHASE: FINAL SUMMARY -->
+  <div class="phase" id="phaseFinal">
+    <div class="final-chain">
+      <div class="fc-line" id="f1">Maximum Answers = 2</div>
+      <div class="fc-arrow" id="fa1">↓</div>
+      <div class="fc-line" id="f2">Track 2 Candidates</div>
+      <div class="fc-arrow" id="fa2">↓</div>
+      <div class="fc-line" id="f3">Whenever 3 Different Elements Meet</div>
+      <div class="fc-arrow" id="fa3">↓</div>
+      <div class="fc-line" id="f4">Cancel Them</div>
+      <div class="fc-arrow" id="fa4">↓</div>
+      <div class="fc-line" id="f5">True Majority Element Survives</div>
+      <div class="fc-arrow" id="fa5">↓</div>
+      <div class="fc-line" id="f6">Verify in Second Pass</div>
+      <div class="fc-arrow" id="fa6">↓</div>
+      <div class="fc-line fc-final" id="f7">Boyer-Moore Majority Vote II ✅</div>
+    </div>
+  </div>
+
+  <button id="replay" title="Replay">↺</button>
+</div>
+
+<script>
+  const timers = [];
+  function t(fn, ms){ timers.push(setTimeout(fn, ms)); }
+  function clearAllTimers(){ timers.forEach(id=>clearTimeout(id)); timers.length = 0; }
+  const el = id => document.getElementById(id);
+
+  function showPhase(id){ el(id).classList.add('show'); }
+  function hidePhase(id){ el(id).classList.remove('show'); }
+
+  function pulse(elId, newText){
+    const e = el(elId);
+    if(newText !== undefined) e.textContent = newText;
+    e.classList.remove('flash');
+    void e.offsetWidth;
+    e.classList.add('flash');
+  }
+
+  function setCaption(text){
+    const c = el('stepCaption');
+    c.classList.remove('in');
+    setTimeout(()=>{ c.textContent = text; c.classList.add('in'); }, 160);
+  }
+
+  const travItems = ['t0','t1','t2','t3','t4','t5','t6'].map(id=>el(id));
+  function setActive(idx){
+    travItems.forEach((it,i)=>{
+      it.classList.toggle('active', i===idx);
+      it.classList.toggle('done', i<idx);
+    });
+  }
+  function clearAllActive(){
+    travItems.forEach(it=>{ it.classList.remove('active'); it.classList.add('done'); });
+  }
+
+  function resetAll(){
+    clearAllTimers();
+    document.querySelectorAll('.phase').forEach(p=>p.classList.remove('show'));
+    document.querySelectorAll('.vsub').forEach(p=>p.classList.remove('show'));
+    document.querySelectorAll('.esub').forEach(p=>p.classList.remove('show'));
+    document.querySelectorAll('.fadeline').forEach(p=>p.classList.remove('in'));
+    document.querySelectorAll('.chain-line').forEach(p=>p.classList.remove('in'));
+    document.querySelectorAll('.chain-arrow').forEach(p=>p.classList.remove('in'));
+    document.querySelectorAll('.fc-line').forEach(p=>p.classList.remove('in'));
+    document.querySelectorAll('.fc-arrow').forEach(p=>p.classList.remove('in'));
+    document.querySelectorAll('.compare-line').forEach(p=>p.classList.remove('in'));
+    travItems.forEach(it=>{ it.classList.remove('active','done'); });
+    el('stepCaption').textContent = '';
+    el('stepCaption').classList.remove('in');
+    el('c1val').textContent = '?';
+    el('c2val').textContent = '?';
+    el('cnt1val').textContent = '0';
+    el('cnt2val').textContent = '0';
+    el('cancelOverlay').classList.remove('show');
+    el('cancelChips').classList.remove('hidden');
+    el('cancelText').classList.remove('show');
+    ['xA','xB','xC'].forEach(id=>el(id).classList.remove('show'));
+    el('replay').classList.remove('show');
+  }
+
+  function play(){
+    let cur = 50;
+
+    // ===== PHASE: INTRO =====
+    t(()=> showPhase('phaseIntro'), cur);
+    t(()=> el('introNumsLabel').classList.add('in'), cur += 120);
+    t(()=> el('introArrayRow').classList.add('in'), cur += 250);
+    t(()=> el('introStatePanel').classList.add('in'), cur += 500);
+    t(()=> el('introCaption').classList.add('in'), cur += 350);
+
+    cur += 1500; // hold reading time
+    t(()=> hidePhase('phaseIntro'), cur);
+
+    // ===== PHASE: TRAVERSAL =====
+    cur += 150;
+    t(()=> showPhase('phaseTraversal'), cur);
+
+    // -- Scene 2 : i=0, val=1 --
+    cur += 250;
+    t(()=> setActive(0), cur);
+    t(()=> setCaption('count1 is 0 → new candidate'), cur += 150);
+    cur += 500;
+    t(()=>{ pulse('c1val','1'); pulse('cnt1val','1'); }, cur);
+    cur += 950;
+
+    // -- Scene 3 : i=1, val=2 --
+    t(()=> setActive(1), cur);
+    t(()=> setCaption('count2 is 0 → new candidate'), cur += 150);
+    cur += 500;
+    t(()=>{ pulse('c2val','2'); pulse('cnt2val','1'); }, cur);
+    cur += 950;
+
+    // -- Scene 4 : i=2, val=3 — cancellation --
+    t(()=> setActive(2), cur);
+    t(()=> setCaption('3 is different from both candidates'), cur += 150);
+    cur += 650;
+    t(()=> showPhase('cancelOverlay'), cur);
+    cur += 700;
+    t(()=>{
+      el('xA').classList.add('show');
+      el('xB').classList.add('show');
+      el('xC').classList.add('show');
+    }, cur);
+    cur += 600;
+    t(()=>{
+      el('cancelChips').classList.add('hidden');
+      el('cancelText').classList.add('show');
+    }, cur);
+    cur += 1300;
+    t(()=>{ pulse('cnt1val','0'); pulse('cnt2val','0'); }, cur);
+    cur += 250;
+    t(()=> hidePhase('cancelOverlay'), cur);
+    cur += 550;
+
+    // -- Scene 5 : i=3, val=1 --
+    t(()=> setActive(3), cur);
+    t(()=> setCaption('count1 is 0 → new candidate'), cur += 150);
+    cur += 500;
+    t(()=>{ pulse('c1val','1'); pulse('cnt1val','1'); }, cur);
+    cur += 950;
+
+    // -- Scene 6 : i=4, val=2 --
+    t(()=> setActive(4), cur);
+    t(()=> setCaption('count2 is 0 → new candidate'), cur += 150);
+    cur += 500;
+    t(()=>{ pulse('c2val','2'); pulse('cnt2val','1'); }, cur);
+    cur += 950;
+
+    // -- Scene 7 : i=5, val=1 — matches candidate1 --
+    t(()=> setActive(5), cur);
+    t(()=> setCaption('Matches candidate1'), cur += 150);
+    cur += 500;
+    t(()=> pulse('cnt1val','2'), cur);
+    cur += 950;
+
+    // -- Scene 8 : i=6, val=2 — matches candidate2 --
+    t(()=> setActive(6), cur);
+    t(()=> setCaption('Matches candidate2'), cur += 150);
+    cur += 500;
+    t(()=> pulse('cnt2val','2'), cur);
+    cur += 950;
+
+    t(()=>{ clearAllActive(); setCaption('Traversal complete'); }, cur);
+    cur += 1100;
+    t(()=> hidePhase('phaseTraversal'), cur);
+
+    // ===== PHASE: COMPLETE (Scene 9) =====
+    cur += 150;
+    t(()=> showPhase('phaseComplete'), cur);
+    t(()=> el('fcCands').classList.add('in'), cur += 150);
+    cur += 700;
+    t(()=> el('fcPotential').classList.add('in'), cur);
+    cur += 700;
+    t(()=> el('fcNotFinal').classList.add('in'), cur);
+    cur += 1500;
+    t(()=> hidePhase('phaseComplete'), cur);
+
+    // ===== PHASE: VERIFICATION =====
+    cur += 150;
+    t(()=> showPhase('phaseVerification'), cur);
+    t(()=> el('vSubA').classList.add('show'), cur);
+    t(()=> el('vAHeader').classList.add('in'), cur += 150);
+    t(()=> el('vALine1').classList.add('in'), cur += 350);
+    t(()=> el('vALine2').classList.add('in'), cur += 280);
+    cur += 1400;
+    t(()=> el('vSubA').classList.remove('show'), cur);
+
+    cur += 500;
+    t(()=> el('vSubB').classList.add('show'), cur);
+    t(()=> el('vBn').classList.add('in'), cur += 150);
+    t(()=> el('vBn3').classList.add('in'), cur += 300);
+    cur += 600;
+    t(()=> el('vBcmp1').classList.add('in'), cur);
+    cur += 500;
+    t(()=> el('vBcmp2').classList.add('in'), cur);
+    cur += 1300;
+    t(()=> el('vSubB').classList.remove('show'), cur);
+
+    cur += 500;
+    t(()=> el('vSubC').classList.add('show'), cur);
+    t(()=> el('vCAnswer').classList.add('in'), cur += 150);
+    cur += 1600;
+    t(()=> hidePhase('phaseVerification'), cur);
+
+    // ===== PHASE: EDGE CASES =====
+    cur += 150;
+    t(()=> showPhase('phaseEdgeCases'), cur);
+    t(()=> el('eHeader').classList.add('show'), cur);
+    t(()=> el('eHeaderText').classList.add('in'), cur += 150);
+    cur += 1500;
+    t(()=> el('eHeader').classList.remove('show'), cur);
+
+    cur += 450;
+    t(()=> el('eCase1').classList.add('show'), cur);
+    t(()=> el('e1Array').classList.add('in'), cur += 150);
+    t(()=> el('e1L1').classList.add('in'), cur += 380);
+    t(()=> el('e1A1').classList.add('in'), cur += 280);
+    t(()=> el('e1L2').classList.add('in'), cur += 220);
+    t(()=> el('e1A2').classList.add('in'), cur += 280);
+    t(()=> el('e1L3').classList.add('in'), cur += 220);
+    cur += 1300;
+    t(()=> el('eCase1').classList.remove('show'), cur);
+
+    cur += 450;
+    t(()=> el('eCase2').classList.add('show'), cur);
+    t(()=> el('e2Array').classList.add('in'), cur += 150);
+    t(()=> el('e2L1').classList.add('in'), cur += 380);
+    t(()=> el('e2A1').classList.add('in'), cur += 280);
+    t(()=> el('e2L2').classList.add('in'), cur += 220);
+    cur += 1300;
+    t(()=> el('eCase2').classList.remove('show'), cur);
+
+    cur += 450;
+    t(()=> el('eCase3').classList.add('show'), cur);
+    t(()=> el('e3Array').classList.add('in'), cur += 150);
+    t(()=> el('e3L1').classList.add('in'), cur += 380);
+    t(()=> el('e3A1').classList.add('in'), cur += 280);
+    t(()=> el('e3L2').classList.add('in'), cur += 220);
+    cur += 1500;
+    t(()=> hidePhase('phaseEdgeCases'), cur);
+
+    // ===== PHASE: FINAL SUMMARY =====
+    cur += 200;
+    t(()=> showPhase('phaseFinal'), cur);
+    const finalIds = ['f1','fa1','f2','fa2','f3','fa3','f4','fa4','f5','fa5','f6','fa6','f7'];
+    finalIds.forEach((id, i)=>{
+      t(()=> el(id).classList.add('in'), cur + 150 + i*340);
+    });
+    cur += 150 + finalIds.length*340;
+
+    // clean pause for 2 seconds at the end
+    cur += 2000;
+    t(()=> el('replay').classList.add('show'), cur);
+  }
+
+  el('replay').addEventListener('click', ()=>{
+    resetAll();
+    t(()=> play(), 80);
+  });
+
+  window.addEventListener('load', ()=> play());
+</script>
+
+</body>
+</html>
